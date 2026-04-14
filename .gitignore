@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# npm/yarn artefacts
+package-lock.json
+yarn.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Roon pairing state (generated at runtime, per-deployment)
+roon-config/
+config/roon-state
+config/roon-state.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local environment overrides (if you ever use an .env file)
+.env
+.env.local
+
+# Log captures, ad-hoc test output, zips from previous layers
+*.log
+*.zip
+*.tar.gz
+
+# macOS zip metadata
+__MACOSX/
+
+# Roon extension config (preset selections - configure via Roon UI)
+config.json

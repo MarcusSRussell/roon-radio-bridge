@@ -1,0 +1,69 @@
+# =============================================================================
+# Roon Radio Bridge - Portainer stack
+# =============================================================================
+# Deploy this as a stack in Portainer on WWMS. Environment variables in
+# the `environment:` section can be edited through the Portainer UI and
+# redeployed to change behaviour without rebuilding the image.
+#
+# Prerequisites on the host:
+#   - SMB share //rock.local/Data mounted at /mnt/rock-logs (see README)
+#   - Port 33262 free (stop the native `node index.js` process first)
+#
+# Roon pairing persists in /opt/roon-radio-bridge/roon-config/ on the host,
+# so after `docker compose down` and back up the extension stays paired.
+# =============================================================================
+
+services:
+  roon-radio-bridge:
+    build: .
+    container_name: roon-radio-bridge
+    restart: unless-stopped
+
+    # network_mode: host is required because Roon's extension discovery
+    # uses the SOOD UDP broadcast protocol which does not traverse Docker's
+    # default bridge network.
+    network_mode: host
+
+    # The SMB-mounted log directory on the host is bind-mounted read-only
+    # into the container. Reuses the host's existing fstab mount rather
+    # than mounting CIFS inside the container (which would need extra
+    # capabilities).
+    volumes:
+      - /mnt/rock-logs:/mnt/rock-logs:ro
+      - ./roon-config:/app/config
+
+    environment:
+      # ---- Watchdog behaviour ----
+      # Set to true once the RoPieee AirPlay investigation is complete
+      # and you want the bridge to auto-resume on unexplained stops.
+      AUTO_RESUME_ENABLED: "false"
+
+      # Delay between detecting an unexplained stop and issuing the
+      # resume. Tune lower for a shorter audible gap (minimum practical
+      # value probably ~1000).
+      RESUME_DELAY_MS: "2500"
+
+      # Two unexplained stops within this window = user intent, watchdog
+      # switches to indirect mode.
+      REARM_WINDOW_MS: "30000"
+
+      # How far back to look in the bridge/log trackers when attributing
+      # a stop event.
+      COMMAND_LOOKBACK_MS: "3000"
+
+      # Comma-separated IPs whose API commands count as Direct Control.
+      # WWMS itself (this host) and the RoPieee touchscreen.
+      DIRECT_CONTROL_IPS: "192.168.1.103,192.168.1.176"
+
+      # ---- Zone identifiers ----
+      # The KitchenPi zone and output IDs in Roon. Change only if Roon
+      # regenerates them (rare - happened once during original dev).
+      KITCHEN_PI_ZONE_ID:   "16012544785f8b36a95b4cf93ed846179af7"
+      KITCHEN_PI_OUTPUT_ID: "17012544785f8b36a95b4cf93ed846179af7"
+
+      # ---- Log tailer ----
+      LOG_PATH:             "/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt"
+      LOG_POLL_INTERVAL_MS: "100"
+
+      # ---- HTTP server ----
+      BRIDGE_PORT: "33262"

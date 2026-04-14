@@ -1,0 +1,19 @@
+{
+  "name": "roon-radio-bridge",
+  "version": "1.0.0",
+  "description": "HTTP bridge between the KitchenPi Arduino controller and Roon ROCK",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Marcus Russell",
+  "private": true,
+  "dependencies": {
+    "node-roon-api": "github:roonlabs/node-roon-api",
+    "node-roon-api-browse": "github:roonlabs/node-roon-api-browse",
+    "node-roon-api-settings": "github:roonlabs/node-roon-api-settings",
+    "node-roon-api-status": "github:roonlabs/node-roon-api-status",
+    "node-roon-api-transport": "github:roonlabs/node-roon-api-transport",
+    "express": "^4.19.2"
+  }
+}
