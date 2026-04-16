@@ -30,8 +30,7 @@ services:
     # capabilities).
     volumes:
       - /mnt/rock-logs:/mnt/rock-logs:ro
-      - ./roon-config:/app/config
-
+      - /opt/roon-radio-bridge/roon-config:/app/config
     environment:
       # ---- Watchdog behaviour ----
       # Set to true once the RoPieee AirPlay investigation is complete
