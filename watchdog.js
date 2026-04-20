@@ -75,32 +75,21 @@
 const { state: roonState } = require('./roon');
 const logTail              = require('./logTail');
 const bridgeCommands        = require('./bridgeCommands');
+const config                = require('./config');
 
 // ---------------------------------------------------------------------------
-// Configuration
+// Configuration (loaded from config.js / env vars)
 // ---------------------------------------------------------------------------
-const KITCHEN_PI_ZONE_ID   = '16012544785f8b36a95b4cf93ed846179af7';
-const KITCHEN_PI_OUTPUT_ID = '17012544785f8b36a95b4cf93ed846179af7';
+const KITCHEN_PI_ZONE_ID   = config.KITCHEN_PI_ZONE_ID;
+const KITCHEN_PI_OUTPUT_ID = config.KITCHEN_PI_OUTPUT_ID;
+const DIRECT_CONTROL_IPS   = config.DIRECT_CONTROL_IPS;
+const AUTO_RESUME_ENABLED  = config.AUTO_RESUME_ENABLED;
+const COMMAND_LOOKBACK_MS  = config.COMMAND_LOOKBACK_MS;
+const RESUME_DELAY_MS      = config.RESUME_DELAY_MS;
+const REARM_WINDOW_MS      = config.REARM_WINDOW_MS;
 
-// IPs of Direct Control surfaces. Commands appearing in the Roon log
-// from these IPs put/keep the watchdog in direct mode. Other IPs are
-// treated as Indirect Control (Roon app, other extensions).
-//
-// In the dockerised version this list will be loaded from an env var
-// DIRECT_CONTROL_IPS=192.168.1.103,192.168.1.176
-const DIRECT_CONTROL_IPS = [
-  '192.168.1.103',  // WWMS - the bridge itself
-  '192.168.1.176'   // RoPieee touchscreen
-];
-
-// Diagnostic mode: when false, detection and logging happen but no
-// auto-resume is issued. Flip to true once the RoPieee investigation
-// is complete.
-const AUTO_RESUME_ENABLED = true;
-
-const COMMAND_LOOKBACK_MS = 3000;   // how far back in tracker/log to check
-const RESUME_DELAY_MS     = 2500;   // wait before auto-resume
-const REARM_WINDOW_MS     = 30000;  // two unexplained stops = user intent
+console.log(`[watchdog] Config: AUTO_RESUME_ENABLED=${AUTO_RESUME_ENABLED}, RESUME_DELAY_MS=${RESUME_DELAY_MS}, REARM_WINDOW_MS=${REARM_WINDOW_MS}`);
+console.log(`[watchdog] Direct Control IPs: ${DIRECT_CONTROL_IPS.join(', ')}`);
 
 // ---------------------------------------------------------------------------
 // State

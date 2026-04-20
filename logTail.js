@@ -31,12 +31,13 @@
  * ===========================================================================
  */
 
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const config = require('./config');
 
-const LOG_PATH         = '/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt';
-const POLL_INTERVAL_MS = 100;        // how often to check for new log lines
-const BUFFER_WINDOW_MS = 60 * 1000;  // keep last 60 seconds of events
+const LOG_PATH         = config.LOG_PATH;
+const POLL_INTERVAL_MS = config.LOG_POLL_INTERVAL_MS;
+const BUFFER_WINDOW_MS = config.LOG_BUFFER_WINDOW_MS;
 const READ_CHUNK_SIZE  = 64 * 1024;  // 64 KB per read
 
 // Rolling buffer of recent transport control events.

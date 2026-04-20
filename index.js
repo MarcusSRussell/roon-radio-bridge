@@ -22,8 +22,9 @@ const express        = require('express');
 const roon           = require('./roon');
 const registerRoutes = require('./routes');
 const logTail        = require('./logTail');
+const config         = require('./config');
 
-const PORT = 33262;
+const PORT = config.PORT;
 
 // Enable/disable log tailing (Layer 2). Set to false to run without it
 // (e.g. if the SMB mount is unavailable during testing).
