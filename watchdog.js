@@ -286,12 +286,31 @@ function attemptResume() {
     console.log('[watchdog] Cannot resume - zone no longer exists');
     return;
   }
-  if (zone.state !== 'stopped') {
+if (zone.state !== 'stopped') {
     console.log(`[watchdog] Resume aborted - zone is now ${zone.state}`);
     return;
   }
   if (controlMode !== 'direct') {
     console.log('[watchdog] Resume aborted - no longer in direct mode');
+    return;
+  }
+
+  // Re-check the log buffer before resuming. When the stop was first
+  // detected, the touchscreen command may not have been read by the
+  // log tailer yet (100ms polling delay). By now ~2.5s have passed
+  // and any legitimate command will be in the buffer.
+  const logByZone   = logTail.findRecentCommand(KITCHEN_PI_ZONE_ID,   COMMAND_LOOKBACK_MS + RESUME_DELAY_MS, STOP_CAUSING_CONTROLS);
+  const logByOutput = logTail.findRecentCommand(KITCHEN_PI_OUTPUT_ID, COMMAND_LOOKBACK_MS + RESUME_DELAY_MS, STOP_CAUSING_CONTROLS);
+  const lateLogEntry = logByZone || logByOutput;
+  if (lateLogEntry) {
+    const sourceIp = lateLogEntry.clientIp.split(':')[0];
+    console.log(`[watchdog] Resume cancelled - stop command from ${sourceIp} now visible in log`);
+    if (DIRECT_CONTROL_IPS.includes(sourceIp)) {
+      console.log('[watchdog] Direct Control surface stopped it - staying in direct');
+    } else {
+      console.log('[watchdog] Indirect Control stopped it - exiting direct mode');
+      controlMode = 'indirect';
+    }
     return;
   }
 
