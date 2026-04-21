@@ -120,6 +120,14 @@ function onZoneTransition(zoneId, prevState, newState, zone) {
   if (zoneId !== KITCHEN_PI_ZONE_ID) return;
   if (!enabled) return;
 
+  // When the zone starts playing, check if a Direct Control surface
+  // triggered it. This catches touchscreen play/playpause actions and
+  // bridge-originated play commands, putting the watchdog into direct
+  // mode so it will protect the stream if the bug fires later.
+  if (newState === 'loading' && (prevState === 'stopped' || prevState === 'paused')) {
+    handlePlayEvent();
+  }
+
   if (prevState === 'playing' && newState === 'stopped') {
     handleStopEvent(zone);
   }
@@ -145,6 +153,49 @@ function getStatus() {
 // ---------------------------------------------------------------------------
 // Detection logic
 // ---------------------------------------------------------------------------
+
+// Controls that indicate a play action (used by handlePlayEvent to
+// detect Direct Control play commands).
+const PLAY_CAUSING_CONTROLS = ['play', 'playpause'];
+
+/**
+ * Called when KitchenPi transitions from stopped/paused to loading.
+ * Checks whether a Direct Control surface (touchscreen, Arduino via
+ * bridge) triggered the play. If so, enters direct mode so the watchdog
+ * will protect the stream.
+ *
+ * This handles the common scenario where someone presses play on the
+ * touchscreen without having pressed a preset button first.
+ */
+function handlePlayEvent() {
+  // Check bridge command tracker first (Arduino via bridge routes)
+  if (bridgeCommands.isRecent(KITCHEN_PI_ZONE_ID,   COMMAND_LOOKBACK_MS, PLAY_CAUSING_CONTROLS) ||
+      bridgeCommands.isRecent(KITCHEN_PI_OUTPUT_ID, COMMAND_LOOKBACK_MS, PLAY_CAUSING_CONTROLS)) {
+    if (controlMode !== 'direct') {
+      controlMode = 'direct';
+      console.log('[watchdog] Direct control (bridge play command)');
+    }
+    return;
+  }
+
+  // Check log for play commands from Direct Control IPs
+  const logByZone   = logTail.findRecentCommand(KITCHEN_PI_ZONE_ID,   COMMAND_LOOKBACK_MS, PLAY_CAUSING_CONTROLS);
+  const logByOutput = logTail.findRecentCommand(KITCHEN_PI_OUTPUT_ID, COMMAND_LOOKBACK_MS, PLAY_CAUSING_CONTROLS);
+  const logEntry    = logByZone || logByOutput;
+
+  if (logEntry) {
+    const sourceIp = logEntry.clientIp.split(':')[0];
+    if (DIRECT_CONTROL_IPS.includes(sourceIp)) {
+      if (controlMode !== 'direct') {
+        controlMode = 'direct';
+        console.log(`[watchdog] Direct control (play from ${sourceIp})`);
+      }
+    }
+    // Play from an indirect IP — don't change mode
+  }
+  // No play command found in tracker or log — could be auto-radio,
+  // Roon app, or similar. Don't change mode.
+}
 
 // Controls that could plausibly cause a zone to transition to stopped.
 // Used to filter the command trackers so a recent 'play' command does

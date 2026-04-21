@@ -31,38 +31,40 @@ services:
     volumes:
       - /mnt/rock-logs:/mnt/rock-logs:ro
       - /opt/roon-radio-bridge/roon-config:/app/config
+
     environment:
       # ---- Watchdog behaviour ----
       # Set to true once the RoPieee AirPlay investigation is complete
       # and you want the bridge to auto-resume on unexplained stops.
-      AUTO_RESUME_ENABLED: "false"
+      # Change in Portainer's Environment variables panel, not here.
+      AUTO_RESUME_ENABLED: ${AUTO_RESUME_ENABLED:-false}
 
       # Delay between detecting an unexplained stop and issuing the
       # resume. Tune lower for a shorter audible gap (minimum practical
       # value probably ~1000).
-      RESUME_DELAY_MS: "2500"
+      RESUME_DELAY_MS: ${RESUME_DELAY_MS:-2500}
 
       # Two unexplained stops within this window = user intent, watchdog
       # switches to indirect mode.
-      REARM_WINDOW_MS: "30000"
+      REARM_WINDOW_MS: ${REARM_WINDOW_MS:-30000}
 
       # How far back to look in the bridge/log trackers when attributing
       # a stop event.
-      COMMAND_LOOKBACK_MS: "3000"
+      COMMAND_LOOKBACK_MS: ${COMMAND_LOOKBACK_MS:-3000}
 
       # Comma-separated IPs whose API commands count as Direct Control.
       # WWMS itself (this host) and the RoPieee touchscreen.
-      DIRECT_CONTROL_IPS: "192.168.1.103,192.168.1.176"
+      DIRECT_CONTROL_IPS: ${DIRECT_CONTROL_IPS:-192.168.1.103,192.168.1.176}
 
       # ---- Zone identifiers ----
       # The KitchenPi zone and output IDs in Roon. Change only if Roon
       # regenerates them (rare - happened once during original dev).
-      KITCHEN_PI_ZONE_ID:   "16012544785f8b36a95b4cf93ed846179af7"
-      KITCHEN_PI_OUTPUT_ID: "17012544785f8b36a95b4cf93ed846179af7"
+      KITCHEN_PI_ZONE_ID:   ${KITCHEN_PI_ZONE_ID:-16012544785f8b36a95b4cf93ed846179af7}
+      KITCHEN_PI_OUTPUT_ID: ${KITCHEN_PI_OUTPUT_ID:-17012544785f8b36a95b4cf93ed846179af7}
 
       # ---- Log tailer ----
-      LOG_PATH:             "/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt"
-      LOG_POLL_INTERVAL_MS: "100"
+      LOG_PATH:             ${LOG_PATH:-/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt}
+      LOG_POLL_INTERVAL_MS: ${LOG_POLL_INTERVAL_MS:-100}
 
       # ---- HTTP server ----
-      BRIDGE_PORT: "33262"
+      BRIDGE_PORT: ${BRIDGE_PORT:-33262}
