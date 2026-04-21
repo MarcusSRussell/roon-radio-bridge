@@ -124,7 +124,10 @@ function onZoneTransition(zoneId, prevState, newState, zone) {
   // triggered it. This catches touchscreen play/playpause actions and
   // bridge-originated play commands, putting the watchdog into direct
   // mode so it will protect the stream if the bug fires later.
-  if (newState === 'loading' && (prevState === 'stopped' || prevState === 'paused')) {
+  // We check on loading->playing rather than stopped->loading because
+  // the log tailer needs time to read the touchscreen command before
+  // we query it (same polling-delay consideration as the stop path).
+  if (newState === 'playing' && prevState === 'loading') {
     handlePlayEvent();
   }
 
