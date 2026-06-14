@@ -11,7 +11,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 # Copy application code
-COPY index.js roon.js routes.js logTail.js watchdog.js bridgeCommands.js config.js ./
+COPY index.js roon.js routes.js logTail.js roonStats.js watchdog.js bridgeCommands.js config.js ./
 COPY api/ ./api/
 
 # The Roon API library writes its state (pairing tokens, extension

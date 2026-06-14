@@ -4,7 +4,7 @@
  * Application: Roon Radio Bridge
  * Author:      Marcus Russell
  * Date:        14 April 2026
- * Version:     1.4.0 (Layer 4)
+ * Version:     1.5.0 (Layer 4 + HA stats reporting)
  *
  * Description:
  *   Centralised configuration. All tunable values can be overridden via
@@ -64,5 +64,16 @@ module.exports = {
   // Log tailer
   LOG_PATH:             envString('LOG_PATH', '/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt'),
   LOG_POLL_INTERVAL_MS: envInt('LOG_POLL_INTERVAL_MS', 100),
-  LOG_BUFFER_WINDOW_MS: envInt('LOG_BUFFER_WINDOW_MS', 60000)
+  LOG_BUFFER_WINDOW_MS: envInt('LOG_BUFFER_WINDOW_MS', 60000),
+
+  // ---- Home Assistant stats reporting ----
+  // Pushes Roon Core health stats (memory, handles, threads, GC pauses),
+  // parsed from the [stats] line in RoonServer_log.txt, to HA sensor
+  // entities via the REST API. See roonStats.js.
+  //
+  // Disabled entirely (no-op) unless SECRET_HA_TOKEN is set - this is a
+  // long-lived access token for the dedicated 'roon-radio-bridge' HA user.
+  HA_BASE_URL:               envString('HA_BASE_URL', 'http://192.168.1.100:8123'),
+  HA_TOKEN:                  envString('SECRET_HA_TOKEN', ''),
+  HA_STATS_PUSH_INTERVAL_MS: envInt('HA_STATS_PUSH_INTERVAL_MS', 60000)
 };

@@ -3,8 +3,8 @@
  * File:        logTail.js
  * Application: Roon Radio Bridge
  * Author:      Marcus Russell
- * Date:        10 April 2026
- * Version:     1.1.0 (Layer 2)
+ * Date:        14 June 2026
+ * Version:     1.2.0 (Layer 2 + HA stats hook)
  *
  * Description:
  *   Tails RoonServer_log.txt from the mounted ROCK SMB share and maintains
@@ -12,6 +12,11 @@
  *   by any API client. Layer 3's watchdog will query this buffer to
  *   distinguish legitimate stops (from the Arduino, touchscreen, Roon app,
  *   or any extension) from the rogue stop that is the Roon live-radio bug.
+ *
+ *   v1.2.0: Every line read from the log is now also passed to
+ *   roonStats.parseStatsLine() so the periodic Roon Core "[stats]" health
+ *   line can be picked up on the same tailed stream, without a second SMB
+ *   file handle. See roonStats.js for details.
  *
  *   The log line signature we care about:
  *     [roonapi] [apiclient X.X.X.X:YYYY] GOT com.roonlabs.transport:2/control
@@ -31,9 +36,10 @@
  * ===========================================================================
  */
 
-const fs     = require('fs');
-const path   = require('path');
-const config = require('./config');
+const fs        = require('fs');
+const path      = require('path');
+const config    = require('./config');
+const roonStats = require('./roonStats');
 
 const LOG_PATH         = config.LOG_PATH;
 const POLL_INTERVAL_MS = config.LOG_POLL_INTERVAL_MS;
@@ -196,6 +202,9 @@ function processChunk(chunk) {
 
 // Parse a single log line and append to buffer if it's a transport control
 function parseLine(line) {
+  // v1.2.0: independent check, doesn't affect anything below. See roonStats.js.
+  roonStats.parseStatsLine(line);
+
   const match = line.match(TRANSPORT_CONTROL_REGEX);
   if (!match) return;
 

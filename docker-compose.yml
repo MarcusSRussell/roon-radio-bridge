@@ -66,5 +66,16 @@ services:
       LOG_PATH:             ${LOG_PATH:-/mnt/rock-logs/RoonServer/Logs/RoonServer_log.txt}
       LOG_POLL_INTERVAL_MS: ${LOG_POLL_INTERVAL_MS:-100}
 
+      # ---- HA stats reporting ----
+      # Pushes Roon Core health stats (memory, handles, threads, GC) to
+      # Home Assistant sensor entities once a minute. Set SECRET_HA_TOKEN
+      # in Portainer's Environment variables panel to enable - leave unset
+      # to disable entirely (the bridge logs this and otherwise no-ops).
+      # Token should be a Long-Lived Access Token for the dedicated
+      # 'roon-radio-bridge' HA user (Settings -> People -> Users).
+      HA_BASE_URL:               ${HA_BASE_URL:-http://192.168.1.100:8123}
+      SECRET_HA_TOKEN:           ${SECRET_HA_TOKEN:-}
+      HA_STATS_PUSH_INTERVAL_MS: ${HA_STATS_PUSH_INTERVAL_MS:-60000}
+
       # ---- HTTP server ----
       BRIDGE_PORT: ${BRIDGE_PORT:-33262}
