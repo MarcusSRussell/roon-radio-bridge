@@ -16,9 +16,10 @@
  *   Layer 2 (planned):      Roon log-tailing module
  *   Layer 3 (planned):      live radio stream watchdog
  *
- *   v1.1.0: Added roonStats - pushes Roon Core health stats to Home
- *   Assistant. Started alongside logTail since it depends on logTail
- *   feeding it parsed lines; no-ops if SECRET_HA_TOKEN isn't configured.
+ *   v1.1.0: Added /roonAPI/stats (via roonStats.js + routes.js) - Roon
+ *   Core health stats (memory/handles/threads/GC) for Home Assistant's
+ *   RESTful integration to poll. logTail feeds it parsed lines from the
+ *   existing tailed log; no separate process to start.
  * ===========================================================================
  */
 
@@ -26,7 +27,6 @@ const express        = require('express');
 const roon           = require('./roon');
 const registerRoutes = require('./routes');
 const logTail        = require('./logTail');
-const roonStats      = require('./roonStats');
 const config         = require('./config');
 
 const PORT = config.PORT;
@@ -50,11 +50,11 @@ registerRoutes(app);
 // Kick off Roon discovery and pairing
 roon.start();
 
-// Start log tailer (Layer 2), and the HA stats reporter that piggybacks
-// on its tailed stream (no-op if SECRET_HA_TOKEN isn't configured)
+// Start log tailer (Layer 2). roonStats piggybacks on its tailed stream
+// via logTail's call to roonStats.parseStatsLine() - no separate start
+// needed, it just serves /roonAPI/stats on demand (see routes.js).
 if (ENABLE_LOG_TAIL) {
   logTail.start();
-  roonStats.start();
 }
 
 // Start HTTP server

@@ -3,20 +3,41 @@
 **Application:** Roon Radio Bridge
 **Author:** Marcus Russell
 **Date:** 14 June 2026
-**Version:** 1.0.0
+**Version:** 2.0.0 (pull-based redesign)
 
 ## Purpose
 
-Pushes Roon Core's periodic health/diagnostic stats (memory, handles,
-threads, GC pause behaviour) into Home Assistant as sensor entities, for
-dashboard visibility and (eventually) automation-based alerting on
-exceptions. This was prompted by noticing a `[stats]` line in
-`RoonServer_log.txt`.
+Exposes Roon Core's periodic health/diagnostic stats (memory, handles,
+threads, GC pause behaviour) for Home Assistant, for dashboard visibility
+and (eventually) automation-based alerting on exceptions. Prompted by
+noticing a `[stats]` line in `RoonServer_log.txt`.
 
-## Source Data
+## v1 -> v2: Why This Changed
 
-The `[stats]` line is written by Roon Core roughly every 14 seconds
-(observed: ~3000 occurrences in 12 hours). Example:
+v1.0.0 had the bridge push values to HA via `POST /api/states/<entity_id>`
+on a 1-minute timer, using a long-lived token for a dedicated admin user
+(`roon-radio-bridge`). This worked (values appeared in Developer Tools ->
+States and updated correctly), but:
+
+- Entities created this way aren't registered in HA's **entity registry**,
+  so they have no `unique_id` and don't behave like normal entities in the
+  GUI - they're invisible to the dashboard entity picker, Settings ->
+  Entities, and the full attribute view in the more-info dialog. Only
+  Developer Tools -> States shows them properly.
+- It required an **Administrator**-level HA token (non-admin users got
+  `401` on the states-write endpoint), which was a security tradeoff we
+  accepted reluctantly at the time.
+
+v2.0.0 flips the direction: **the bridge exposes a read-only endpoint, and
+HA pulls from it** using the built-in RESTful integration. Because that's
+a UI-configured integration, HA creates proper registry-backed entities
+(with `unique_id`) automatically - full GUI support, for free, and no HA
+token of any kind is needed.
+
+## Source Data (unchanged from v1)
+
+The `[stats]` line is written by Roon Core roughly every 14 seconds.
+Example:
 
 ```
 06/14 08:50:35 [Local 06/14 09:50:35] Info: [stats] 70464mb Virtual,
@@ -24,99 +45,108 @@ The `[stats]` line is written by Roon Core roughly every 14 seconds
 70 Threads, 1.07% of runtime in GC pauses, 24ms last GC pause duration
 ```
 
-**Important caveat:** this format is based on a single observed sample
-line. There is no known published Roon documentation describing it - it's
-consistent with standard .NET runtime/GC diagnostic output (Roon Core runs
-on .NET), but its stability across Roon versions is unverified. If Roon
-changes the wording, `roonStats.js` will log a throttled warning
-(`[stats] line did not match expected format`) rather than failing
-silently - if you ever see that in the logs, the regex in `roonStats.js`
-will need updating to match the new wording.
+**Caveat (unchanged):** this format is based on a single observed sample
+line, with no known published Roon documentation. If Roon changes the
+wording, `roonStats.js` logs a throttled
+`[stats] line did not match expected format` warning - if you see that,
+the regex in `roonStats.js` needs updating. Harmless otherwise:
+`/roonAPI/stats` just keeps returning the last known values.
 
-## Architecture
+## Architecture (v2)
 
-- `roonStats.js` (new) owns the regex, the entity list, the in-memory
-  "latest values", and the push-to-HA logic.
-- `logTail.js` (v1.2.0) calls `roonStats.parseStatsLine(line)` for every
-  line it reads from `RoonServer_log.txt` - this reuses the existing
-  tailed stream rather than opening a second SMB file handle.
-- Parsing happens on every `[stats]` line (~every 14s), but pushing to HA
-  only happens on a separate interval (`HA_STATS_PUSH_INTERVAL_MS`,
-  default 60000ms / 1 minute) - keeps HA's recorder database growth
-  reasonable while giving minute-resolution trend data.
-- `index.js` (v1.1.0) starts `roonStats` alongside `logTail`.
+- `roonStats.js` parses every `[stats]` line (called from `logTail.js`,
+  same as v1 - no second SMB file handle) and keeps the latest values in
+  memory as a flat object.
+- `routes.js` adds `GET /roonAPI/stats`, returning that object as JSON.
+- HA's RESTful integration polls this endpoint (suggested: every 60s) and
+  defines 8 sensors via `value_template`.
+- No push interval, no HA token, no `start()`/`stop()` - the endpoint just
+  answers on demand.
 
-## HA Entities (8)
+## GET /roonAPI/stats
 
-| Entity ID                          | Unit | Source field                  |
-|-------------------------------------|------|--------------------------------|
-| `sensor.roon_memory_virtual`         | MB   | Virtual                         |
-| `sensor.roon_memory_physical`        | MB   | Physical                        |
-| `sensor.roon_memory_managed`         | MB   | Managed                         |
-| `sensor.roon_memory_unmanaged`       | MB   | estimated Unmanaged             |
-| `sensor.roon_handles`                | -    | Handles                         |
-| `sensor.roon_threads`                | -    | Threads                         |
-| `sensor.roon_gc_pause_percent`       | %    | % of runtime in GC pauses       |
-| `sensor.roon_gc_pause_duration`      | ms   | last GC pause duration          |
+Example response (all fields `null` until the first `[stats]` line has
+been seen, e.g. briefly after startup):
 
-Each is pushed via `POST /api/states/<entity_id>` with
-`attributes: { friendly_name, unit_of_measurement, state_class: "measurement" }`.
-`state_class: measurement` enables HA long-term statistics (history graphs
-over days/weeks) for each entity.
+```json
+{
+  "memory_virtual_mb": 70464,
+  "memory_physical_mb": 2412,
+  "memory_managed_mb": 1275,
+  "memory_unmanaged_mb": 1137,
+  "handles": 552,
+  "threads": 70,
+  "gc_pause_percent": 1.07,
+  "gc_pause_duration_ms": 24
+}
+```
 
-**Known limitation:** entities created via the REST states API are not
-restored across an HA restart - they'll briefly show "unavailable" until
-the next push (within `HA_STATS_PUSH_INTERVAL_MS`). Not considered a
-problem at a 1-minute interval.
+Unauthenticated GET, consistent with the bridge's other diagnostic routes
+(`/roonAPI/listZones`, `/roonAPI/logTail/recent`, etc.) - no control
+capability, just current numbers.
 
-## Configuration (env vars)
+## HA Setup (to do)
 
-All optional - the feature is fully disabled (no-op, logged once at
-startup) unless `SECRET_HA_TOKEN` is set.
+1. **Verify the endpoint first**, before touching HA - from any machine on
+   the LAN:
+   ```
+   curl http://192.168.1.103:33262/roonAPI/stats
+   ```
+   Confirm you get the JSON shown above with real (non-null) numbers.
 
-| Env var                      | Default                          | Notes |
-|-------------------------------|-----------------------------------|-------|
-| `HA_BASE_URL`                  | `http://192.168.1.100:8123`       | HA instance |
-| `SECRET_HA_TOKEN`              | *(unset)*                          | Long-lived access token for the `roon-radio-bridge` HA user |
-| `HA_STATS_PUSH_INTERVAL_MS`    | `60000`                            | Push frequency |
+2. **Settings -> Devices & Services -> Add Integration -> "RESTful"**.
+   - Resource: `http://192.168.1.103:33262/roonAPI/stats`
+   - Method: GET
+   - Scan interval: 60 (seconds)
+   - HA will fetch the resource and then prompt you to define sensors
+     from the JSON response.
 
-## HA Setup (already done)
+3. For each of the 8 fields, add a sensor with:
+   - **Value template**: `{{ value_json.<field_name> }}` (field names as
+     in the JSON above, e.g. `{{ value_json.handles }}`)
+   - **Unit of measurement**: `MB` / `ms` / `%` as appropriate, blank for
+     `handles`/`threads`
+   - **State class**: `Measurement` - enables HA long-term statistics
+     (history graphs over days/weeks)
 
-- Created a dedicated HA user `roon-radio-bridge` (mirrors the approach
-  used for zigbee2mqtt - separate revocable token, separate audit trail).
-- Initially non-admin; `POST /api/states/<entity_id>` returned `401` for
-  that user despite `GET /api/` succeeding (200 `{"message":"API
-  running."}`) - non-admin users could not create new states via the REST
-  API.
-- Made `roon-radio-bridge` an Administrator (Settings -> People -> Users
-  -> Administrator toggle). Re-tested the same POST - succeeded (`200`
-  with the new entity's state object). Confirmed end-to-end.
-- Generated a Long-Lived Access Token from that user's profile (Security
-  tab) - this is the value for `SECRET_HA_TOKEN`.
+   (Exact wording/steps in HA's UI may vary slightly by version - the
+   above is the general shape. The important parts are the resource URL,
+   the `value_json.<field>` template syntax, and setting `state_class` so
+   long-term stats work.)
 
-## Files Changed
+## Cleanup from v1 (optional)
+
+These are no longer used by the bridge, but nothing breaks if left as-is:
+
+- `SECRET_HA_TOKEN` env var in Portainer - can be removed.
+- The dedicated `roon-radio-bridge` HA user / its long-lived access token -
+  can be deleted, or left dormant for a future feature that needs to push
+  *into* HA (this pull-based approach doesn't need it, but some future
+  thing might).
+
+## Files Changed (v1 -> v2)
 
 | File                | Change |
 |---------------------|--------|
-| `roonStats.js`      | New - regex parsing, entity list, HA push |
-| `logTail.js`        | v1.2.0 - calls `roonStats.parseStatsLine()` per line |
-| `config.js`         | v1.5.0 - new `HA_*` config block |
-| `index.js`          | v1.1.0 - starts `roonStats` alongside `logTail` |
-| `Dockerfile`         | Added `roonStats.js` to the COPY list |
-| `docker-compose.yml` | Added `HA_BASE_URL`, `SECRET_HA_TOKEN`, `HA_STATS_PUSH_INTERVAL_MS` |
+| `roonStats.js`      | v2.0.0 - removed push/HA-token logic; `getLatestStats()` now returns a flat JSON-ready object |
+| `routes.js`         | v1.1.0 - added `GET /roonAPI/stats` |
+| `index.js`          | v1.1.0 - removed `roonStats.start()` (no longer a separate process) |
+| `config.js`         | v1.4.0 - removed `HA_*`/`SECRET_HA_TOKEN` config (reverted to pre-v1 state) |
+| `docker-compose.yml` | Removed `HA_BASE_URL`, `SECRET_HA_TOKEN`, `HA_STATS_PUSH_INTERVAL_MS` |
+| `logTail.js`        | Unchanged from v1.2.0 - the `roonStats.parseStatsLine()` hook is still correct |
+| `Dockerfile`         | Unchanged - `roonStats.js` already in the COPY list |
 
 ## Status / Next Steps
 
-1. **Not yet deployed.** Add `SECRET_HA_TOKEN` in Portainer's Environment
-   variables panel for the `roon-radio-bridge` stack, redeploy.
-2. Confirm the 8 entities appear in HA (Developer Tools -> States, search
-   "roon_") and update with new values roughly once a minute.
-3. Build dashboard cards for the 8 sensors.
-4. Once a few days of baseline data exist, consider HA automations for
-   exception-based notifications (e.g. `sensor.roon_handles` trending
-   upward over hours = possible leak; `sensor.roon_gc_pause_percent`
-   sustained high = possible memory pressure). Deliberately deferred until
-   real baseline values are known - thresholds picked now would be guesses.
-5. Watch the bridge logs for `[roonStats]` lines after deploy - both the
-   "pushing every Nms" startup line and any throttled
-   format-mismatch/push-failure warnings.
+1. Merge these changes (same workflow as before: copy files into
+   `/opt/roon-radio-bridge`, `git add`/`commit`/`push`, then "Pull and
+   redeploy" with "Re-pull image and redeploy" checked in Portainer, since
+   `routes.js`/`index.js`/`roonStats.js`/`config.js` all changed).
+2. After redeploy, `curl http://192.168.1.103:33262/roonAPI/stats` to
+   confirm the new route works and returns real numbers.
+3. Set up the RESTful integration in HA as above.
+4. Confirm all 8 entities appear in Settings -> Entities (proper
+   registry-backed entities this time) and on a dashboard.
+5. Once a few days of baseline data exist, consider automations for
+   exception-based notifications - deliberately deferred until real
+   baseline values are known.
