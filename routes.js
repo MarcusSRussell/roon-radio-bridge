@@ -39,7 +39,11 @@ module.exports = function(app) {
   //     the [stats] line in RoonServer_log.txt. Polled by HA's RESTful
   //     integration - see HA_STATS_REPORTING.md. ---
   app.get('/roonAPI/stats', (req, res) => {
-    res.send(roonStats.getLatestStats());
+    const stats = roonStats.getLatestStats();
+    if (Object.values(stats).some(v => v === null)) {
+      return res.status(503).json({ error: 'No stats available yet' });
+    }
+    res.json(stats);
   });
 
   // --- Diagnostic (Layer 3): watchdog status ---
