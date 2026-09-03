@@ -3,8 +3,8 @@
  * File:        roonStats.js
  * Application: Roon Radio Bridge
  * Author:      Marcus Russell
- * Date:        14 June 2026
- * Version:     2.0.0
+ * Date:        03 September 2026
+ * Version:     2.1.0
  *
  * Description:
  *   Parses the periodic "[stats]" health line from RoonServer_log.txt
@@ -12,60 +12,60 @@
  *   the latest values via GET /roonAPI/stats, for Home Assistant's
  *   RESTful integration to poll.
  *
- *   v2.0.0: Replaced the v1.0.0 push-to-HA design (POST to
- *   /api/states/<entity_id> on an interval, requiring an admin-level
- *   SECRET_HA_TOKEN) with a pull model. Reasons for the change:
- *     - Entities created via POST /api/states/ aren't registered in HA's
- *       entity registry, so they lack unique_id and don't show up
- *       properly in the GUI (dashboards, entity picker, full attribute
- *       view) - only in Developer Tools -> States.
- *     - HA's RESTful integration (configured via Settings -> Devices &
- *       Services -> Add Integration -> RESTful) creates proper
- *       registry-backed entities automatically.
- *     - Removes the need for an admin-level HA token entirely - this
- *       endpoint is a plain unauthenticated GET, consistent with the
- *       bridge's other diagnostic/status routes.
- *   v1.0.0's push logic, the HA_BASE_URL / SECRET_HA_TOKEN /
- *   HA_STATS_PUSH_INTERVAL_MS config, and start()/stop() are gone.
+ *   v2.1.0: Updated STATS_REGEX and STAT_KEYS to match Roon's new [stats]
+ *   line format, observed from approximately August 2026. The old format
+ *   used comma-separated fields with "Managed" and "estimated Unmanaged"
+ *   as top-level memory fields. The new format uses semicolons as major
+ *   separators and provides a richer memory breakdown:
  *
- *   Observed log line (08/06/2026, RoonServer_log.txt):
- *     ... Info: [stats] 70464mb Virtual, 2412mb Physical, 1275mb Managed,
- *         1137mb estimated Unmanaged, 552 Handles, 70 Threads,
- *         1.07% of runtime in GC pauses, 24ms last GC pause duration
+ *   Old (v2.0.0):
+ *     70464mb Virtual, 2412mb Physical, 1275mb Managed,
+ *     1137mb estimated Unmanaged, 552 Handles, 70 Threads,
+ *     1.07% of runtime in GC pauses, 24ms last GC pause duration
+ *     (8 extractable values)
  *
- *   This format is based on a single observed sample, not on any published
- *   Roon documentation (none is known to exist for this line). If Roon
- *   changes the wording, STATS_REGEX will stop matching; see
- *   handleFormatMismatch() below for how that's surfaced in the logs
- *   without affecting any other bridge function.
+ *   New (v2.1.0):
+ *     70142mb Virtual; 2054mb Physical = 862mb GC-committed
+ *     (643mb Managed-live = 74% of committed) + 1192mb Native;
+ *     472 Handles, 74 Threads, 0.68% of runtime in GC pauses,
+ *     96ms GC pause in last window (0.64% of window)
+ *     (11 extractable values)
  *
- *   Design notes:
- *   - parseStatsLine() is called from logTail.js's parseLine() for every
- *     line read from the log (unchanged from v1.0.0) - this reuses the
- *     existing tailed stream rather than opening a second SMB file handle.
- *   - getLatestStats() returns a flat object keyed by STAT_KEYS, with all
- *     values null until the first [stats] line has been seen (briefly,
- *     after startup). The JSON shape is always the same 8 keys, so HA's
- *     value_templates never hit a missing key.
+ *   The 6 values that map cleanly (Virtual, Physical, Handles, Threads,
+ *   GC pause %, GC pause duration) keep the same JSON keys where possible.
+ *   The old "Managed" and "estimated Unmanaged" keys are replaced by
+ *   "memory_gc_committed_mb", "memory_managed_live_mb",
+ *   "memory_managed_live_percent", and "memory_native_mb".
+ *   Three new fields are added: see STAT_KEYS below.
+ *   HA configuration.yaml must be updated alongside this change -
+ *   see HA_STATS_REPORTING.md.
+ *
+ *   The format caveat (no known Roon documentation for this line) still
+ *   applies. If the format changes again, the throttled
+ *   "[stats] line did not match expected format" log warning will fire -
+ *   update STATS_REGEX and STAT_KEYS to match.
  * ===========================================================================
  */
 
-// Matches the [stats] line described above. Capture groups (1-8) map
-// 1:1 to STAT_KEYS below, in order.
+// Matches the new [stats] line format (observed from ~Aug 2026).
+// 11 capture groups - each maps to a STAT_KEYS entry in order.
 const STATS_REGEX =
-  /\[stats\]\s+(\d+)mb Virtual, (\d+)mb Physical, (\d+)mb Managed, (\d+)mb estimated Unmanaged, (\d+) Handles, (\d+) Threads, ([\d.]+)% of runtime in GC pauses, (\d+)ms last GC pause duration/;
+  /\[stats\]\s+(\d+)mb Virtual; (\d+)mb Physical = (\d+)mb GC-committed \((\d+)mb Managed-live = (\d+)% of committed\) \+ (\d+)mb Native; (\d+) Handles, (\d+) Threads, ([\d.]+)% of runtime in GC pauses, (\d+)ms GC pause in last window \(([\d.]+)% of window\)/;
 
-// One key per STATS_REGEX capture group, in order. These are the JSON
-// field names returned by getLatestStats() / GET /roonAPI/stats.
+// One key per STATS_REGEX capture group, in order.
+// These are the JSON field names returned by GET /roonAPI/stats.
 const STAT_KEYS = [
-  'memory_virtual_mb',
-  'memory_physical_mb',
-  'memory_managed_mb',
-  'memory_unmanaged_mb',
-  'handles',
-  'threads',
-  'gc_pause_percent',
-  'gc_pause_duration_ms'
+  'memory_virtual_mb',            // group 1:  Virtual
+  'memory_physical_mb',           // group 2:  Physical (total)
+  'memory_gc_committed_mb',       // group 3:  GC-committed (heap reserved by runtime)
+  'memory_managed_live_mb',       // group 4:  Managed-live (live managed objects)
+  'memory_managed_live_percent',  // group 5:  Managed-live as % of GC-committed
+  'memory_native_mb',             // group 6:  Native (unmanaged/native heap)
+  'handles',                      // group 7:  OS handle count
+  'threads',                      // group 8:  Thread count
+  'gc_pause_percent',             // group 9:  % of runtime spent in GC pauses
+  'gc_pause_last_window_ms',      // group 10: GC pause duration in last reporting window (ms)
+  'gc_pause_window_percent'       // group 11: GC pause as % of last reporting window
 ];
 
 // Most recently parsed values, keyed by STAT_KEYS. All null until the
@@ -100,10 +100,9 @@ function parseStatsLine(line) {
 }
 
 /**
- * Returns the latest parsed values as a flat object, e.g.:
- *   { memory_virtual_mb: 70464, ..., gc_pause_duration_ms: 24 }
- * All values are null until the first [stats] line has been seen
- * (briefly, after startup). Used by GET /roonAPI/stats.
+ * Returns the latest parsed values as a flat object. All values are null
+ * until the first [stats] line has been seen (briefly, after startup).
+ * Used by GET /roonAPI/stats.
  */
 function getLatestStats() {
   return { ...latestValues };
@@ -113,14 +112,10 @@ function getLatestStats() {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Throttled warning if a [stats] line is seen but doesn't match
-// STATS_REGEX - most likely cause is Roon changing the line's wording in
-// an update. Logged but otherwise harmless: latestValues simply stops
-// updating, so /roonAPI/stats keeps returning the last known values.
 function handleFormatMismatch(line) {
   consecutiveFormatErrors++;
   if (consecutiveFormatErrors === 1 || consecutiveFormatErrors % 60 === 0) {
-    console.log(`[roonStats] [stats] line did not match expected format (${consecutiveFormatErrors} consecutive): ${line.trim()}`);
+    console.log('[roonStats] [stats] line did not match expected format (' + consecutiveFormatErrors + ' consecutive): ' + line.trim());
   }
 }
 
